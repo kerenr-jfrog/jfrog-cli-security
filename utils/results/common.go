@@ -20,7 +20,6 @@ import (
 	"github.com/jfrog/jfrog-cli-security/utils/jasutils"
 	"github.com/jfrog/jfrog-cli-security/utils/severityutils"
 	"github.com/jfrog/jfrog-cli-security/utils/techutils"
-	"github.com/jfrog/jfrog-cli-security/utils/xray"
 	"github.com/jfrog/jfrog-client-go/utils/errorutils"
 	"github.com/jfrog/jfrog-client-go/utils/log"
 	"github.com/jfrog/jfrog-client-go/xray/services"
@@ -480,7 +479,7 @@ func buildImpactPathForComponent(component cyclonedx.Component, componentAppeara
 	}
 	// Add the parent components to the impact path
 	for _, parent := range cdxutils.SearchParents(component.BOMRef, components, dependencies...) {
-		if componentAppearances[parent.BOMRef] > xray.MaxUniqueAppearances || parent.BOMRef == component.BOMRef {
+		if parent.BOMRef == component.BOMRef {
 			// If the parent is the same as the affected component, we skip it (cyclic dependencies).
 			// If the component has already appeared too many times, skip it to avoid stack overflow.
 			continue

@@ -1,12 +1,14 @@
 package nuget
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/jfrog/gofrog/datastructures"
@@ -292,19 +294,52 @@ func runDotnetRestore(wd string, params technologies.BuildInfoBomGeneratorParams
 
 func parseNugetDependencyTree(buildInfo *entities.BuildInfo) (nodes []*xrayUtils.GraphNode, allUniqueDeps []string) {
 	uniqueDepsSet := datastructures.MakeSet[string]()
+	// print buildInfo into a file for debugging
+	dir, _ := os.Getwd()
+	log.Debug("Writing buildInfo to file in dir: " + dir)
+	buildInfoJson, err := json.MarshalIndent(buildInfo, "", "  ")
+	if err != nil {
+		log.Error("Failed to marshal buildInfo to JSON: %s", err.Error())
+	}
+	err = os.WriteFile("buildInfo.json", buildInfoJson, 0644)
+	if err != nil {
+		return nil, nil
+	}
+
 	for _, module := range buildInfo.Modules {
 		treeMap := make(map[string]xray.DepTreeNode)
+		// Ensure deterministic processing order of dependencies
+		sort.Slice(module.Dependencies, func(i, j int) bool { return module.Dependencies[i].Id < module.Dependencies[j].Id })
 		for _, dependency := range module.Dependencies {
 			dependencyId := nugetPackageTypeIdentifier + dependency.Id
-			parent := nugetPackageTypeIdentifier + dependency.RequestedBy[0][0]
-			depTreeNode, ok := treeMap[parent]
-			if ok {
-				depTreeNode.Children = append(depTreeNode.Children, dependencyId)
-			} else {
-				depTreeNode.Children = []string{dependencyId}
+			// Use all parents, not just the first
+			for _, requestedByNode := range dependency.RequestedBy {
+				if len(requestedByNode) == 0 || requestedByNode[0] == "" {
+					continue
+				}
+				parent := nugetPackageTypeIdentifier + requestedByNode[0]
+				depTreeNode := treeMap[parent]
+				depTreeNode.Children = appendUniqueChild(depTreeNode.Children, dependencyId)
+				treeMap[parent] = depTreeNode
 			}
-			treeMap[parent] = depTreeNode
 		}
+		// Stabilize children order per parent for deterministic tree construction
+		for parent, node := range treeMap {
+			sort.Strings(node.Children)
+			treeMap[parent] = node
+		}
+		// print the tree map to a file for debugging
+		dir, _ := os.Getwd()
+		log.Debug("Writing tree map to file in dir: " + dir)
+		treeMapJson, err := json.MarshalIndent(treeMap, "", "  ")
+		if err != nil {
+			log.Error("Failed to marshal tree map to JSON: %s", err.Error())
+		}
+		err = os.WriteFile("treeMap.json", treeMapJson, 0644)
+		if err != nil {
+			return nil, nil
+		}
+
 		dependencyTree, uniqueDeps := xray.BuildXrayDependencyTree(treeMap, nugetPackageTypeIdentifier+module.Id)
 		nodes = append(nodes, dependencyTree)
 		for _, uniqueDep := range maps.Keys(uniqueDeps) {
@@ -313,4 +348,13 @@ func parseNugetDependencyTree(buildInfo *entities.BuildInfo) (nodes []*xrayUtils
 	}
 	allUniqueDeps = uniqueDepsSet.ToSlice()
 	return
+}
+
+func appendUniqueChild(children []string, candidate string) []string {
+	for _, existing := range children {
+		if existing == candidate {
+			return children
+		}
+	}
+	return append(children, candidate)
 }

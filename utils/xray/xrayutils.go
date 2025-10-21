@@ -50,7 +50,7 @@ func populateXrayDependencyTree(currNode *xrayUtils.GraphNode, treeHelper map[st
 			Types:      treeHelper[childDepId].Types,
 			Classifier: treeHelper[childDepId].Classifier,
 		}
-		if dependencyAppearances[childDepId] >= MaxUniqueAppearances || childNode.NodeHasLoop() {
+		if childNode.NodeHasLoop() {
 			continue
 		}
 		currNode.Nodes = append(currNode.Nodes, childNode)
